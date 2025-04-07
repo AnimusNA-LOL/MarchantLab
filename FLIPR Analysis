@@ -1,0 +1,323 @@
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+# Load the dataset
+unclean_data <- read.csv("Read.csv")  # Replace with your actual file path
+
+# Inspect the structure of the dataset
+str(unclean_data)
+
+# Step 1: Remove columns 1 to 4 (filler text)
+my_data <- unclean_data[, -(1:4)]  # Exclude the first 4 columns
+
+# Step 2: Define a function to clean the data (remove rows and keep specific columns)
+clean_data <- function(data, start_row, end_row, cols_to_keep) {
+  # Remove rows between start_row and end_row (inclusive)
+  data <- data[-(start_row:end_row), ]
+  
+  # Keep only the specified columns
+  data <- data[, cols_to_keep]
+  
+  # Return the cleaned dataset
+  return(data)
+}
+
+# Step 3: Apply the cleaning function
+# Assume we want to remove rows 621 to 627 and keep all columns after removing the first 4
+my_data <- clean_data(
+  data = my_data,
+  start_row = 622,
+  end_row = 627,
+  cols_to_keep = c(1, 2:ncol(my_data))  # Keep column 1 (time) and all fluorescence columns
+)
+
+# Ensure all fluorescence data columns are numeric
+my_data <- lapply(my_data, function(col) {
+  as.numeric(as.character(col))  # Convert to numeric, handling factors
+})
+my_data <- as.data.frame(my_data)  # Convert back to a data frame
+
+print(my_data)
+
+# Step 1: Calculate the baseline average (time between 1 and 21 seconds)
+baseline_avg <- sapply(my_data[, -1], function(column) {
+  # Find rows where time (first column) is between 1 and 21 seconds
+  time <- my_data[, 1] >= 1 & my_data[, 1] <= 21
+  
+  # Compute the mean of the fluorescence values for the baseline rows
+  mean_value <- mean(column[baseline_rows], na.rm = TRUE)  # Compute the mean, ignoring NA values
+  
+  # Return the mean value
+  return(mean_value)
+})
+
+# Step 5: Find the maximum value after 27 seconds for each column
+max_after_27 <- sapply(my_data[, -1], function(column) {
+  # Find rows where time (first column) is greater than 27 seconds
+  after_27_rows <- my_data[, 1] > 27
+  
+  
+  # Compute the maximum of the fluorescence values for the after-27 rows
+  max_value <- max(column[after_27_rows], na.rm = TRUE)  # Compute the maximum, ignoring NA values
+  
+  # Return the maximum value
+  return(max_value)
+})
+
+# Compute the difference (max_after_27 - baseline_avg)
+difference <- max_after_27 - baseline_avg
+
+# Combine baseline average, maximum, and difference calculations
+results <- sapply(names(my_data)[-1], function(column_name) {
+  # Extract the fluorescence column
+  column <- my_data[[column_name]]
+  
+  # Find rows where time (first column) is between 1 and 21 seconds
+  baseline_rows <- my_data[, 1] >= 1 & my_data[, 1] <= 21
+  
+  # Find rows where time (first column) is greater than 27 seconds
+  after_27_rows <- my_data[, 1] > 27
+  
+  # Compute the baseline average
+  baseline_avg <- mean(column[baseline_rows], na.rm = TRUE)
+  
+  # Compute the maximum value after 27 seconds
+  max_after_27 <- max(column[after_27_rows], na.rm = TRUE)
+  
+  # Compute the difference (max_after_27 - baseline_avg)
+  difference <- max_after_27 - baseline_avg
+  
+
+# Return all three results as a named vector
+return(c(
+  Baseline_Average = baseline_avg,
+  Max_After_27_Seconds = max_after_27,
+  Difference = difference
+))
+})
+
+# Convert the results to a data frame for better readability
+results <- as.data.frame(t(results))  # Transpose the results to make columns into rows
+
+# Add column names for clarity
+colnames(results) <- c("Baseline_Average", "Max_After_27_Seconds","Difference")
+
+# Print the final results
+cat("\nFinal Results:\n")
+print(results)
+
+# Step 1: Ensure the Difference column is numeric
+results$Difference <- as.numeric(as.character(results$Difference))
+
+# Step 2: Define a function to calculate the average difference for a group
+calculate_average_difference <- function(data, group_prefix) {
+  # Filter rows where the row names start with the specified prefix (e.g., "M")
+  group_rows <- grepl(paste0("^", group_prefix), rownames(data))  # Check row names
+  
+  # Debugging: Print the rows that match the pattern
+  cat("\nRows matching the pattern '^", group_prefix, "':\n", sep = "")
+  print(rownames(data)[group_rows])
+  
+  # Extract the corresponding rows from the results dataframe
+  group_data <- data[group_rows, ]
+  
+  # Debugging: Print the filtered data
+  cat("\nFiltered Data for Group:", group_prefix, "\n")
+  print(group_data)
+  
+  # Handle cases where no rows match the group prefix
+  if (nrow(group_data) == 0) {
+    warning("No rows found for group: ", group_prefix)
+    return(NA)  # Return NA if no rows are found
+  }
+  
+  # Calculate the average of the Difference values for the group
+  average_difference <- mean(group_data$Difference, na.rm = TRUE)
+  
+  return(average_difference)
+}
+
+# Step 3: Dynamically calculate the average difference for multiple groups
+# Define the group prefixes you want to analyze
+group_prefixes <- c("M")  # Add all relevant prefixes
+
+# Use sapply to calculate the average difference for each group
+average_differences <- sapply(group_prefixes, function(prefix) {
+  calculate_average_difference(results, prefix)
+})
+
+# Combine the results into a data frame for better readability
+average_differences_df <- data.frame(
+  Group = group_prefixes,
+  Average_Difference = average_differences
+)
+
+# Step 2: Extract Numeric Part of Row Names
+# Extract the numeric part of the row name (e.g., "1" from "A1")
+results$Drug_Number <- as.numeric(gsub("[^0-9]", "", rownames(results)))
+
+# Step 3: Map Drug Numbers to Drug Names (Cyclic Pattern)
+# Use modular arithmetic to assign drug names cyclically
+drug_mapping <- c("1" = "Drug1", "2" = "Drug2", "3" = "Drug3", "4" = "Drug4")
+results$Drug <- drug_mapping[as.character((results$Drug_Number - 1) %% 4 + 1)]
+
+DMSO <- average_differences_df$Average_Difference[1]
+
+print (DMSO)
+# Step 3: Subtract the Background from All Individual Differences
+results$Adjusted_Difference <- results$Difference - DMSO
+
+# Print the updated results dataframe
+cat("\nResults with Adjusted Difference Column:\n")
+print(results)
+
+# Define the custom function
+assign_cell_types <- function(results, cell_type_names) {
+  # Step 1: Ensure the Difference column is numeric
+  results$Difference <- as.numeric(as.character(results$Difference))
+  
+  # Step 2: Extract Numeric Part of Row Names
+  # Extract the numeric part of the row name (e.g., "1" from "A1")
+  results$Row_Number <- as.numeric(gsub("[^0-9]", "", rownames(results)))
+  
+  # Step 3: Assign Cell Types Using Modular Arithmetic
+  # Use ceiling() to group rows into sets of 4 and map them to cell type names
+  num_groups <- ceiling(max(results$Row_Number) / 4)  # Calculate the number of groups
+  
+  # Debugging: Check if cell_type_names has enough elements
+  if (length(cell_type_names) < num_groups) {
+    stop(paste("Error: 'cell_type_names' has only", length(cell_type_names), 
+               "elements, but", num_groups, "are required."))
+  }
+  
+  results$Cell_Type <- cell_type_names[ceiling(results$Row_Number / 4)]
+  
+  # Return the updated dataframe
+  return(results)
+}
+# Step 4: Specify Custom Cell Type Names
+# Ensure you have enough names for all groups
+num_groups <- ceiling(nrow(results) / 4)
+cell_type_names <- paste0("CellType", 1:num_groups)  # Automatically generate names like CellType1, CellType2, ...
+
+# Step 5: Call the Function to Assign Cell Types
+results <- assign_cell_types(results, cell_type_names)
+
+# Print the dataframe with Cell Type information
+cat("\nResults with Cell Type Information:\n")
+print(head(results))  # Print the first few rows for verification
+
+# Step 1: Extract Drug 2's L Values for Each Cell Type
+# Filter rows where Drug is "Drug2" and row name contains "L"
+drug2_L_values <- results %>%
+  filter(Drug == "Drug2" & grepl("L", rownames(results))) %>%
+  select(Cell_Type, Adjusted_Difference) %>%
+  rename(Drug2_Reference = Adjusted_Difference)
+
+# Debugging: Print drug2_L_values to verify it contains the expected data
+cat("\nDrug 2's L Values for Each Cell Type:\n")
+print(drug2_L_values)
+
+# Step 2: Merge Drug 2's Reference Values Back into Results
+# Merge the Drug2 reference values into the results dataframe
+results <- results %>%
+  left_join(drug2_L_values, by = "Cell_Type")
+
+# Debugging: Check if Drug2_Reference was successfully merged
+cat("\nResults After Merging Drug2_Reference:\n")
+print(head(results))
+
+# Step 3: Normalize the Data (Exclude Rows with "M" or "N")
+# Add a new column for Normalized_Value, initialized as NA
+results$Normalized_Value <- NA
+
+# Normalize only rows that do NOT contain "M" or "N" in their row names
+results <- results %>%
+  mutate(Normalized_Value = ifelse(!grepl("M", rownames(results)) & !grepl("N", rownames(results)),
+                                   (Adjusted_Difference / Drug2_Reference) * 100,
+                                   Normalized_Value))
+
+# Step 4: Print the Normalized Data
+cat("\nResults with Normalized Values:\n")
+print(head(results))
+
+# Step 1: Generate Identifiers in the Format A1, A2, ..., P1, P2, etc.
+# Define the letters (A to P) and numbers (1 to n)
+letters_list <- LETTERS[1:16]  # A to P
+numbers_list <- rep(1:(nrow(results) / 16), each = 16)  # Repeat numbers for each group of 16 rows
+
+# Combine letters and numbers to create identifiers like A1, A2, ..., P1, P2, etc.
+row_identifiers <- paste0(rep(letters_list, length.out = nrow(results)), numbers_list)
+
+# Step 2: Add the Row Identifiers as a New Column
+results$Row_Identifier <- row_identifiers
+
+# Step 3: Verify the Updated Dataset
+cat("\nResults with Row Identifier Column:\n")
+print(head(results))
+
+# Step 1: Define the Function to Generate Tables Grouped by Cell Type
+generate_drug_response_tables_by_cell_type <- function(results) {
+  # Debugging: Identify duplicate combinations of Cell_Type and Drug
+  cat("\nDuplicate Combinations of Cell_Type and Drug:\n")
+  duplicates <- results %>%
+    group_by(Cell_Type, Drug) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    filter(n > 1L)
+  print(duplicates)
+  
+  # Option 1: Aggregate Duplicate Values (e.g., take the mean)
+  aggregated_results <- results %>%
+    group_by(Cell_Type, Drug) %>%
+    summarise(Normalized_Value = mean(Normalized_Value, na.rm = TRUE), .groups = "drop")
+  
+  # Debugging: Check the structure of the aggregated data
+  cat("\nStructure of Aggregated Data:\n")
+  print(str(aggregated_results))
+  
+  # Pivot the data to wide format, grouping by Cell_Type and spreading Drug as columns
+  grouped_tables <- aggregated_results %>%
+    pivot_wider(names_from = Drug, values_from = Normalized_Value)  # Spread Drug into columns
+  
+  # Debugging: Check the structure of the wide-format table
+  cat("\nStructure of Wide-Format Table:\n")
+  print(str(grouped_tables))
+  
+  # Split the wide-format data into separate tables for each Cell_Type
+  table_list <- split(grouped_tables, grouped_tables$Cell_Type)
+  
+  # Debugging: Check the structure of the split tables
+  cat("\nStructure of Split Tables:\n")
+  print(lapply(table_list, str))
+  
+  # Return the list of tables
+  return(table_list)
+}
+
+# Step 2: Call the Function to Generate Tables
+drug_response_tables <- generate_drug_response_tables_by_cell_type(results)
+
+# Step 3: Inspect the Generated Tables
+cat("\nGenerated Tables:\n")
+for (name in names(drug_response_tables)) {
+  cat("\nTable Name:", name, "\n")
+  print(head(drug_response_tables[[name]]))
+}
+
+# Optional: Save Each Table as a Separate CSV File
+output_dir <- "drug_response_tables_by_cell_type"  # Specify the output directory
+dir.create(output_dir, showWarnings = FALSE)  # Create the directory if it doesn't exist
+
+# Debugging: Ensure all elements in drug_response_tables are data frames
+for (name in names(drug_response_tables)) {
+  if (!is.data.frame(drug_response_tables[[name]])) {
+    stop(paste("Error: Table for", name, "is not a data frame."))
+  }
+}
+
+# Save each table as a CSV file
+for (name in names(drug_response_tables)) {
+  output_file <- file.path(output_dir, paste0(name, ".csv"))
+  write.csv(drug_response_tables[[name]], output_file, row.names = FALSE)
+}
